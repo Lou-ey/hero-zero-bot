@@ -12,8 +12,11 @@ import pywinstyles
 import json
 import os
 import webbrowser
+import threading
 
 CONFIG_FILE = "config.json"
+
+bot_isActive = False
 
 # Criar interface gráfica
 root = tk.Tk()
@@ -23,6 +26,7 @@ root.iconbitmap("icon/icon.ico")
 menu_frame = tk.Frame(root)
 menu_frame.pack(fill="x")
 sv_ttk.set_theme(darkdetect.theme())
+scroll = ttk.Scrollbar(root, orient="vertical")
 
 # Opções de configuração
 config = {
@@ -65,6 +69,20 @@ START_MISSION_BUTTON = (1280, 934)
 NEXT_MISSION_BUTTON = (1497, 448)
 CAPTURE_REGION_XP = (1362, 992, 100, 50)
 CAPTURE_REGION_ENERGIA = (900, 760, 150, 50)
+
+def change_active_state():
+    global bot_isActive
+    if bot_isActive:
+        bot_isActive = False
+        bot_button.config(text="▶ Iniciar Bot", command=change_active_state)
+        add_log("Bot stopped.", "SUCCESS")
+    else:
+        bot_isActive = True
+        bot_button.config(text="⏹ Parar Bot", command=change_active_state)
+
+        # Iniciar o bot numa thread separada
+        bot_thread = threading.Thread(target=iniciar_bot, daemon=True)
+        bot_thread.start()
 
 def find_missions():
     """Encontra missões disponíveis na tela e retorna suas posições."""
@@ -117,7 +135,7 @@ def pick_best_mission():
     while True:
         missoes = find_missions()
         if not missoes:
-            add_log("Nenhuma missão encontrada. Tentando novamente em 5 segundos...")
+            add_log("Nenhuma missão encontrada. Tentando novamente em 5 segundos...", "WARNING")
             time.sleep(5)
             continue
 
@@ -146,39 +164,51 @@ def pick_best_mission():
             pyautogui.click()
             time.sleep(2)
             pyautogui.click(START_MISSION_BUTTON)
-            add_log(f"Missão selecionada com {melhor_ratio:.2f} XP por energia!")
+            add_log(f"Missão selecionada com {melhor_ratio:.2f} XP por energia!", "SUCCESS")
             break
         else:
-            add_log("Nenhuma missão atende aos requisitos. Tentando novamente em 5 segundos...")
+            add_log("Nenhuma missão atende aos requisitos. Tentando novamente em 5 segundos...", "WARNING")
             time.sleep(5)
 
 def collect_shovels():
     """Verifica e coleta as pás do evento quando disponíveis."""
+    global bot_isActive
     shovel_icon = cv2.imread('assets/shovel_button.png', 0)  # Ícone do botão de pegar pás
-    add_log("Looking for shovel button...")
+    add_log("Looking for shovel button...", "INFO")
 
-    while True:
+    while bot_isActive:
         screenshot = pyautogui.screenshot(region=(0, 0, 1920, 1080))
         screenshot_gray = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2GRAY)
         result = cv2.matchTemplate(screenshot_gray, shovel_icon, cv2.TM_CCOEFF_NORMED)
-        locations = np.where(result >= 0.8)  # Ajusta a precisão conforme necessário
+        locations = np.where(result >= 0.8)
 
         if locations[0].size > 0:
             pos = list(zip(*locations[::-1]))[0]  # Obtém a posição do primeiro botão encontrado
             pyautogui.moveTo(pos[0] + 10, pos[1] + 10, duration=0.5)
             pyautogui.click()
-            add_log("✅ Shovels collected successfully! Waiting 3 hours before checking again...")
+            add_log("✅ Shovels collected successfully! Waiting 3 hours before checking again...", "SUCCESS")
             time.sleep(10800)  # Espera 3 horas
         else:
-            add_log("⏳ Button not found. Retrying in 30 seconds...")
+            add_log("⏳ Button not found. Retrying in 30 seconds...", "WARNING")
             time.sleep(30)  # Aguarda 30 segundos antes de tentar novamente
 
     #add_log("Monitoring for shovel button stopped.")
 
-def add_log(text):
+def add_log(text, log_type="INFO"):
     """Adiciona uma mensagem ao log da interface gráfica."""
     timestamp = time.strftime("%H:%M:%S", time.localtime())
-    log.insert(tk.END,timestamp + " INFO: " + text + "\n")
+
+    tag = "info"
+    if log_type == "ERROR":
+        tag = "error"
+    elif log_type == "WARNING":
+        tag = "warning"
+    elif log_type == "SUCCESS":
+        tag = "success"
+
+    log.config(state="normal")
+    log.insert(tk.END,f'[{timestamp}] [{log_type}]: {text}\n', tag)
+    log.config(state="disabled")
     log.see(tk.END)
     root.update_idletasks()
 
@@ -211,26 +241,21 @@ def iniciar_bot():
     """Inicia o bot com as configurações escolhidas."""
     # se nenhuma configuração estiver marcada, exibir mensagem de erro
     if not config["usar_timed_missoes"].get() and not config["usar_combat_missoes"].get() and not config["collect_shovels"].get():
-        add_log("ERRO: None of the config options are selected. Please select at least one option.")
+        add_log("None of the config options are selected. Please select at least one option.", "ERROR")
         return
-    add_log("Inicializing bot with the following settings:")
-    add_log(f"  - Timed Missions: {config['usar_timed_missoes'].get()}")
-    add_log(f"  - Combat Missions: {config['usar_combat_missoes'].get()}")
+    add_log("Inicializing bot with the following settings:", "INFO")
+    add_log(f"  - Timed Missions: {config['usar_timed_missoes'].get()}", "INFO")
+    add_log(f"  - Combat Missions: {config['usar_combat_missoes'].get()}", "INFO")
     #print(f"  - Usar seta: {config['usar_seta'].get()}")
-    add_log(f"  - Min XP per energy: {config['xp_minimo'].get()}")
-    add_log(f"  - Collect shovels: {config['collect_shovels'].get()}")
+    add_log(f"  - Min XP per energy: {config['xp_minimo'].get()}", "INFO")
+    add_log(f"  - Collect shovels: {config['collect_shovels'].get()}\n", "INFO")
 
     if config["collect_shovels"].get():
-        add_log("Collecting shovels mode enabled!")
+        add_log("Collecting shovels mode enabled!", "SUCCESS")
         collect_shovels()
 
     if config["usar_timed_missoes"].get() or config["usar_combat_missoes"].get():
         pick_best_mission()
-
-def parar_bot():
-    """Para o bot."""
-    add_log("Bot stopped.")
-    root.quit()
 
 # Interface gráfica
 
@@ -274,8 +299,8 @@ buttons_frame = ttk.Frame(root)
 buttons_frame.pack(fill="x", padx=10, pady=10)
 
 # Botões de controle do bot
-ttk.Button(buttons_frame, text="▶ Iniciar Bot", command=iniciar_bot).pack(side="left", expand=True, padx=5, pady=5, ipadx=5, ipady=3)
-ttk.Button(buttons_frame, text="⏹ Parar Bot", command=parar_bot).pack(side="left", expand=True, padx=5, pady=5, ipadx=5, ipady=3)
+bot_button = ttk.Button(buttons_frame, text="▶ Iniciar Bot", command=change_active_state)
+bot_button.pack(side="left", expand=True, padx=5, pady=5, ipadx=5, ipady=3)
 
 # Frame do Log
 log_frame = ttk.LabelFrame(root, text="Log")
@@ -285,15 +310,20 @@ log_frame.pack(fill="both", expand=True, padx=10, pady=10)
 log = tk.Text(log_frame, height=10, wrap="word", state="normal", bg="#1e1e1e", fg="#dcdcdc", font=("Consolas", 10))
 log.pack(padx=5, pady=5, fill="both", expand=True)
 
+log.tag_config("error", foreground="red")
+log.tag_config("warning", foreground="orange")
+log.tag_config("success", foreground="green")
+log.tag_config("info", foreground="white")
+
 # Botão para limpar o log
 ttk.Button(log_frame, text="🧹 Clear Log", command=lambda: log.delete(1.0, tk.END)).pack(pady=5)
 
-# Rodapé (Criador e Link)
+# Rodapé
 footer_frame = ttk.Frame(root)
 footer_frame.pack(fill="x", pady=5)
 
 ttk.Label(footer_frame, text="Created by: @Lou-ey", font=("Arial", 8)).pack(pady=2)
-github_link = ttk.Label(footer_frame, text="🔗 GitHub: Hero Zero Bot", font=("Arial", 8), foreground="blue", cursor="hand2")
+github_link = ttk.Label(footer_frame, text="🔗 GitHub: Hero Zero Bot", font=("Arial", 8), cursor="hand2")
 github_link.pack(pady=2)
 github_link.bind("<Button-1>", lambda e: open_github())
 
