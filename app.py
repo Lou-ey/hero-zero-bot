@@ -14,9 +14,13 @@ import os
 import webbrowser
 import threading
 
+from PIL.ImageOps import expand
+from numpy.f2py.cfuncs import commonhooks
+
 CONFIG_FILE = "config.json"
 
 bot_isActive = False
+elapsed_time = 0
 
 # Criar interface gráfica
 root = tk.Tk()
@@ -233,6 +237,19 @@ def apply_theme_to_titlebar(root):
         root.wm_attributes("-alpha", 0.99)
         root.wm_attributes("-alpha", 1)
 
+def timer():
+    """Atualiza o contador a cada segundo."""
+    global elapsed_time, bot_isActive
+    while True:
+        if bot_isActive:
+            elapsed_time += 1
+            formatted_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
+            timer_label.config(text=formatted_time)
+        else:
+            elapsed_time = 0
+            timer_label.config(text="00:00:00")
+        time.sleep(1)
+
 def open_github():
     """Abre o link do GitHub no navegador."""
     webbrowser.open("https://github.com/Lou-ey/hero-zero-bot")
@@ -301,6 +318,17 @@ buttons_frame.pack(fill="x", padx=10, pady=10)
 # Botões de controle do bot
 bot_button = ttk.Button(buttons_frame, text="▶ Iniciar Bot", command=change_active_state)
 bot_button.pack(side="left", expand=True, padx=5, pady=5, ipadx=5, ipady=3)
+
+# Counter Frame
+timer_frame = ttk.Frame(root)
+timer_frame.pack(fill="x", padx=5, pady=5)
+
+timer_label = ttk.Label(timer_frame, text="00:00:00", font=("Arial", 12, "bold"))
+timer_label.pack(pady=5)
+
+# Iniciar a contagem do tempo numa thread separada
+timer_thread = threading.Thread(target=timer, daemon=True)
+timer_thread.start()
 
 # Frame do Log
 log_frame = ttk.LabelFrame(root, text="Log")
